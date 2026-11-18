@@ -2278,6 +2278,14 @@ static size_t /* PRIVATE */
 png_setup_sub_row(png_structrp png_ptr, png_uint_32 bpp,
     size_t row_bytes, size_t lmins)
 {
+#if PNG_LOONGARCH_LSX_IMPLEMENTATION == 1
+   /* 同 png_setup_up_row：向量版不早停，返回值语义等价 */
+   (void)lmins;
+   png_ptr->try_row[0] = PNG_FILTER_VALUE_SUB;
+
+   return png_setup_sub_row_lsx(png_ptr->try_row + 1, png_ptr->row_buf + 1,
+       bpp, row_bytes);
+#else
    png_bytep rp, dp, lp;
    size_t i;
    size_t sum = 0;
@@ -2311,6 +2319,7 @@ png_setup_sub_row(png_structrp png_ptr, png_uint_32 bpp,
    }
 
    return sum;
+#endif /* PNG_LOONGARCH_LSX_IMPLEMENTATION == 1 */
 }
 
 static void /* PRIVATE */

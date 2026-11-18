@@ -147,5 +147,59 @@ png_setup_up_row_lsx(png_bytep dp, png_const_bytep rp, png_const_bytep pp,
 }
 /* ==== END fn=png_setup_up_row_lsx ==== */
 
+/* ==== BEGIN fn=png_setup_sub_row_lsx ==== */
+/* SUB 滤波：dp[i] = rp[i] - rp[i-bpp]，是**逐字节**运算、与像素边界无关，
+ * 所以 bpp=3/4/6/8 共用同一段 16 字节对齐减法（只要 i >= bpp）。
+ * 前 bpp 字节按 C 版原样拷贝（对应 C 的第一个循环）。 */
+size_t
+png_setup_sub_row_lsx(png_bytep dp, png_const_bytep rp, png_uint_32 bpp,
+    size_t row_bytes)
+{
+   size_t i = 0, sum = 0;
+   __m128i acc;
+
+   for (; i < bpp && i < row_bytes; i++)
+   {
+      png_byte v = rp[i];
+
+      dp[i] = v;
+      sum += (v < 128) ? v : 256 - v;
+   }
+
+   if (!png_write_lsx_enabled())
+   {
+      for (; i < row_bytes; i++)
+      {
+         png_byte v = (png_byte)(((int)rp[i] - (int)rp[i - bpp]) & 0xff);
+
+         dp[i] = v;
+         sum += (v < 128) ? v : 256 - v;
+      }
+      return sum;
+   }
+
+   acc = __lsx_vldi(0);
+   for (; i + 16 <= row_bytes; i += 16)
+   {
+      __m128i d = __lsx_vsub_b(__lsx_vld(rp + i, 0),
+          __lsx_vld(rp + i - bpp, 0));
+
+      __lsx_vst(d, dp + i, 0);
+      acc = lsx_acc_abs_sum(acc, d);
+   }
+   sum += lsx_reduce_u32x4(acc);
+
+   for (; i < row_bytes; i++)
+   {
+      png_byte v = (png_byte)(((int)rp[i] - (int)rp[i - bpp]) & 0xff);
+
+      dp[i] = v;
+      sum += (v < 128) ? v : 256 - v;
+   }
+
+   return sum;
+}
+/* ==== END fn=png_setup_sub_row_lsx ==== */
+
 #endif /* PNG_LOONGARCH_LSX_IMPLEMENTATION == 1 */
 #endif /* PNG_WRITE_SUPPORTED */

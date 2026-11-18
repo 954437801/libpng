@@ -264,5 +264,102 @@ png_setup_avg_row_lsx(png_bytep dp, png_const_bytep rp, png_const_bytep pp,
 }
 /* ==== END fn=png_setup_avg_row_lsx ==== */
 
+/* PAETH 预测器（8×s16）：pred = (pa<=pb && pa<=pc) ? a : (pb<=pc) ? b : c
+ * 注意 LSX 的 vbitsel_v(x, y, mask)：mask=1 时选**第二操作数** y。 */
+static __m128i
+lsx_paeth_pred8(__m128i alo, __m128i blo, __m128i clo, __m128i z)
+{
+   __m128i p1 = __lsx_vsub_h(blo, clo);            /* b-c */
+   __m128i p2 = __lsx_vsub_h(alo, clo);            /* a-c */
+   __m128i pa = __lsx_vabsd_h(p1, z);              /* |b-c| */
+   __m128i pb = __lsx_vabsd_h(p2, z);              /* |a-c| */
+   __m128i pc = __lsx_vabsd_h(__lsx_vadd_h(p1, p2), z); /* |a+b-2c| */
+   __m128i m1 = __lsx_vand_v(__lsx_vsle_h(pa, pb), __lsx_vsle_h(pa, pc));
+   __m128i m2 = __lsx_vsle_h(pb, pc);
+
+   return __lsx_vbitsel_v(__lsx_vbitsel_v(clo, blo, m2), alo, m1);
+}
+
+/* ==== BEGIN fn=png_setup_paeth_row_lsx ==== */
+size_t
+png_setup_paeth_row_lsx(png_bytep dp, png_const_bytep rp,
+    png_const_bytep pp, png_uint_32 bpp, size_t row_bytes)
+{
+   size_t i = 0, sum = 0;
+   __m128i acc, z;
+
+   /* 前 bpp 字节：C 版就是 rp[i] - pp[i] */
+   for (; i < bpp && i < row_bytes; i++)
+   {
+      png_byte v = (png_byte)(((int)rp[i] - (int)pp[i]) & 0xff);
+
+      dp[i] = v;
+      sum += (v < 128) ? v : 256 - v;
+   }
+
+   if (!png_write_lsx_enabled())
+   {
+      for (; i < row_bytes; i++)
+      {
+         int b = pp[i], c = pp[i - bpp], a = rp[i - bpp];
+         int p1 = b - c, p2 = a - c;
+         int pa = p1 < 0 ? -p1 : p1;
+         int pb = p2 < 0 ? -p2 : p2;
+         int pc = p1 + p2;
+         int pr;
+         png_byte v;
+
+         if (pc < 0) pc = -pc;
+         pr = (pa <= pb && pa <= pc) ? a : (pb <= pc) ? b : c;
+         v = (png_byte)(((int)rp[i] - pr) & 0xff);
+
+         dp[i] = v;
+         sum += (v < 128) ? v : 256 - v;
+      }
+      return sum;
+   }
+
+   acc = __lsx_vldi(0);
+   z = __lsx_vldi(0);
+   for (; i + 16 <= row_bytes; i += 16)
+   {
+      __m128i a8 = __lsx_vld(rp + i - bpp, 0);
+      __m128i b8 = __lsx_vld(pp + i, 0);
+      __m128i c8 = __lsx_vld(pp + i - bpp, 0);
+      __m128i pr_lo = lsx_paeth_pred8(__lsx_vilvl_b(z, a8),
+          __lsx_vilvl_b(z, b8), __lsx_vilvl_b(z, c8), z);
+      __m128i pr_hi = lsx_paeth_pred8(__lsx_vilvh_b(z, a8),
+          __lsx_vilvh_b(z, b8), __lsx_vilvh_b(z, c8), z);
+      /* vpickev_b(hi, lo) 才是 (lo[0..7], hi[0..7]) 顺序 */
+      __m128i pr8 = __lsx_vpickev_b(pr_hi, pr_lo);
+      __m128i d = __lsx_vsub_b(__lsx_vld(rp + i, 0), pr8);
+
+      __lsx_vst(d, dp + i, 0);
+      acc = lsx_acc_abs_sum(acc, d);
+   }
+   sum += lsx_reduce_u32x4(acc);
+
+   for (; i < row_bytes; i++)
+   {
+      int b = pp[i], c = pp[i - bpp], a = rp[i - bpp];
+      int p1 = b - c, p2 = a - c;
+      int pa = p1 < 0 ? -p1 : p1;
+      int pb = p2 < 0 ? -p2 : p2;
+      int pc = p1 + p2;
+      int pr;
+      png_byte v;
+
+      if (pc < 0) pc = -pc;
+      pr = (pa <= pb && pa <= pc) ? a : (pb <= pc) ? b : c;
+      v = (png_byte)(((int)rp[i] - pr) & 0xff);
+
+      dp[i] = v;
+      sum += (v < 128) ? v : 256 - v;
+   }
+
+   return sum;
+}
+/* ==== END fn=png_setup_paeth_row_lsx ==== */
+
 #endif /* PNG_LOONGARCH_LSX_IMPLEMENTATION == 1 */
 #endif /* PNG_WRITE_SUPPORTED */

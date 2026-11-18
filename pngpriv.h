@@ -1680,6 +1680,10 @@ PNG_INTERNAL_FUNCTION(size_t, png_setup_avg_row_lsx,
    (png_bytep dp, png_const_bytep rp, png_const_bytep pp, png_uint_32 bpp,
     size_t row_bytes),
    PNG_EMPTY);
+PNG_INTERNAL_FUNCTION(size_t, png_setup_paeth_row_lsx,
+   (png_bytep dp, png_const_bytep rp, png_const_bytep pp, png_uint_32 bpp,
+    size_t row_bytes),
+   PNG_EMPTY);
 #endif /* PNG_WRITE_SUPPORTED */
 #endif
 

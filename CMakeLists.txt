@@ -304,7 +304,8 @@ if(PNG_HARDWARE_OPTIMIZATIONS)
       if(COMPILER_SUPPORTS_LSX)
         set(libpng_loongarch_sources
             loongarch/loongarch_lsx_init.c
-            loongarch/filter_lsx_intrinsics.c)
+            loongarch/filter_lsx_intrinsics.c
+            loongarch/filter_write_lsx_intrinsics.c)
         set_source_files_properties(${libpng_loongarch_sources}
                                     PROPERTIES COMPILE_FLAGS "-mlsx")
         add_definitions(-DPNG_LOONGARCH_LSX_OPT=1)

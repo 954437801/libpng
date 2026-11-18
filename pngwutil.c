@@ -2338,6 +2338,17 @@ png_setup_sub_row_only(png_structrp png_ptr, png_uint_32 bpp,
 static size_t /* PRIVATE */
 png_setup_up_row(png_structrp png_ptr, size_t row_bytes, size_t lmins)
 {
+#if PNG_LOONGARCH_LSX_IMPLEMENTATION == 1
+   /* LSX 版不做早停，返回值语义见 loongarch/filter_write_lsx_intrinsics.c：
+    * 真实 sum <= lmins 时精确相等，否则返回 > lmins 的值；调用方只判断
+    * (sum < mins)，两种情况下结论一致。
+    */
+   (void)lmins;
+   png_ptr->try_row[0] = PNG_FILTER_VALUE_UP;
+
+   return png_setup_up_row_lsx(png_ptr->try_row + 1, png_ptr->row_buf + 1,
+       png_ptr->prev_row + 1, row_bytes);
+#else
    png_bytep rp, dp, pp;
    size_t i;
    size_t sum = 0;
@@ -2361,6 +2372,7 @@ png_setup_up_row(png_structrp png_ptr, size_t row_bytes, size_t lmins)
    }
 
    return sum;
+#endif /* PNG_LOONGARCH_LSX_IMPLEMENTATION == 1 */
 }
 static void /* PRIVATE */
 png_setup_up_row_only(png_structrp png_ptr, size_t row_bytes)
@@ -2610,6 +2622,9 @@ png_write_find_filter(png_structrp png_ptr, png_row_infop row_info)
       /* Overflow not possible and multiple filters in the list, including the
        * 'none' filter.
        */
+#if PNG_LOONGARCH_LSX_IMPLEMENTATION == 1
+      mins = png_write_none_sum_lsx(row_buf + 1, row_bytes);
+#else
       png_bytep rp;
       size_t sum = 0;
       size_t i;
@@ -2628,6 +2643,7 @@ png_write_find_filter(png_structrp png_ptr, png_row_infop row_info)
       }
 
       mins = sum;
+#endif /* PNG_LOONGARCH_LSX_IMPLEMENTATION == 1 */
    }
 
    /* Sub filter */

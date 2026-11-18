@@ -1664,6 +1664,16 @@ PNG_INTERNAL_FUNCTION(void, png_read_filter_row_paeth3_lsx,
 PNG_INTERNAL_FUNCTION(void, png_read_filter_row_paeth4_lsx,
    (png_row_infop row_info, png_bytep row, png_const_bytep prev_row),
    PNG_EMPTY);
+
+#ifdef PNG_WRITE_SUPPORTED
+/* 编码侧（png_write_find_filter 热点），见 loongarch/filter_write_lsx_intrinsics.c */
+PNG_INTERNAL_FUNCTION(size_t, png_write_none_sum_lsx,
+   (png_const_bytep rp, size_t row_bytes),
+   PNG_EMPTY);
+PNG_INTERNAL_FUNCTION(size_t, png_setup_up_row_lsx,
+   (png_bytep dp, png_const_bytep rp, png_const_bytep pp, size_t row_bytes),
+   PNG_EMPTY);
+#endif /* PNG_WRITE_SUPPORTED */
 #endif
 
 #if PNG_RISCV_RVV_IMPLEMENTATION == 1

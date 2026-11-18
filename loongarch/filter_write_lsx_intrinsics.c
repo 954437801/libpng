@@ -201,5 +201,68 @@ png_setup_sub_row_lsx(png_bytep dp, png_const_bytep rp, png_uint_32 bpp,
 }
 /* ==== END fn=png_setup_sub_row_lsx ==== */
 
+/* ==== BEGIN fn=png_setup_avg_row_lsx ==== */
+/* AVG 滤波：
+ *   前 bpp 字节  dp[i] = rp[i] - (pp[i] / 2)
+ *   其余       dp[i] = rp[i] - ((rp[i-bpp] + pp[i]) >> 1)   （floor）
+ * 向量实现用 vavgr_bu（ceil 平均）再减 ``(a^b)&1`` 修正为 floor，
+ * 已通过 avgprobe 抽样穷举验证（bad=0）。
+ */
+size_t
+png_setup_avg_row_lsx(png_bytep dp, png_const_bytep rp, png_const_bytep pp,
+    png_uint_32 bpp, size_t row_bytes)
+{
+   size_t i = 0, sum = 0;
+   __m128i acc, one;
+
+   for (; i < bpp && i < row_bytes; i++)
+   {
+      png_byte v = (png_byte)(((int)rp[i] - ((int)pp[i] / 2)) & 0xff);
+
+      dp[i] = v;
+      sum += (v < 128) ? v : 256 - v;
+   }
+
+   if (!png_write_lsx_enabled())
+   {
+      for (; i < row_bytes; i++)
+      {
+         png_byte v = (png_byte)(((int)rp[i] -
+             (((int)rp[i - bpp] + (int)pp[i]) >> 1)) & 0xff);
+
+         dp[i] = v;
+         sum += (v < 128) ? v : 256 - v;
+      }
+      return sum;
+   }
+
+   acc = __lsx_vldi(0);
+   one = __lsx_vldi(1);
+   for (; i + 16 <= row_bytes; i += 16)
+   {
+      __m128i a = __lsx_vld(rp + i - bpp, 0);
+      __m128i b = __lsx_vld(pp + i, 0);
+      __m128i avg = __lsx_vsub_b(__lsx_vavgr_bu(a, b),
+          __lsx_vand_v(__lsx_vxor_v(a, b), one));
+      __m128i d = __lsx_vsub_b(__lsx_vld(rp + i, 0), avg);
+
+      __lsx_vst(d, dp + i, 0);
+      acc = lsx_acc_abs_sum(acc, d);
+   }
+   sum += lsx_reduce_u32x4(acc);
+
+   for (; i < row_bytes; i++)
+   {
+      png_byte v = (png_byte)(((int)rp[i] -
+          (((int)rp[i - bpp] + (int)pp[i]) >> 1)) & 0xff);
+
+      dp[i] = v;
+      sum += (v < 128) ? v : 256 - v;
+   }
+
+   return sum;
+}
+/* ==== END fn=png_setup_avg_row_lsx ==== */
+
 #endif /* PNG_LOONGARCH_LSX_IMPLEMENTATION == 1 */
 #endif /* PNG_WRITE_SUPPORTED */
